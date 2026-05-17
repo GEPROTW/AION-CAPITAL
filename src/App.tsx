@@ -316,6 +316,32 @@ const parseImageUrl = (url: string | undefined): string => {
 };
 
 export default function App() {
+  const SITE_ID = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const querySiteId = params.get('siteId');
+    if (querySiteId) return querySiteId;
+
+    const hostname = window.location.hostname;
+    // For local development or AI studio preview, we might want a default siteId if no path
+    if (hostname.includes('localhost') || hostname.includes('run.app') || hostname.includes('webcontainer')) {
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      if (pathParts.length > 0 && !['history', 'simulation', 'settings'].includes(pathParts[0])) {
+        return hostname.replace(/\./g, '_') + '_' + pathParts[0].replace(/-/g, '_');
+      }
+      // If we are on dev and no path, default to a known site for testing if needed
+      // but let's stick to hostname for now
+      return hostname.replace(/\./g, '_');
+    }
+
+    const host = hostname.replace(/\./g, '_');
+    const path = window.location.pathname.split('/').filter(Boolean)[0] || '';
+    let id = host;
+    if (path && !['history', 'simulation', 'settings'].includes(path)) {
+      id += '_' + path.replace(/-/g, '_');
+    }
+    return id;
+  }, []);
+
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<Timeframe>('DAY');
@@ -417,18 +443,18 @@ export default function App() {
 
   useEffect(() => {
     const unsubSettings = onSnapshot(
-      doc(db, 'settings', 'appSettings'),
+      doc(db, 'settings', SITE_ID),
       (docSnap) => {
         if (docSnap.exists()) {
           setSettings(docSnap.data() as AppSettings);
         }
       },
       (err) => {
-        handleFirestoreError(err, OperationType.GET, 'settings/appSettings');
+        handleFirestoreError(err, OperationType.GET, `settings/${SITE_ID}`);
       }
     );
     return () => unsubSettings();
-  }, []);
+  }, [SITE_ID]);
 
   useEffect(() => {
     // Open query for all accounts since we removed login constraint
@@ -460,10 +486,10 @@ export default function App() {
 
   const handleSaveSettings = async () => {
     try {
-      await setDoc(doc(db, 'settings', 'appSettings'), tempSettings, { merge: true });
+      await setDoc(doc(db, 'settings', SITE_ID), tempSettings, { merge: true });
       setShowSettingsModal(false);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'settings/appSettings');
+      handleFirestoreError(err, OperationType.WRITE, `settings/${SITE_ID}`);
     }
   };
 
@@ -472,6 +498,7 @@ export default function App() {
     try {
       const dealsQuery = query(
         collection(db, 'deals'),
+        where('siteId', '==', SITE_ID),
         where('isPublic', '==', true)
       );
       
@@ -493,7 +520,7 @@ export default function App() {
 
   useEffect(() => {
     fetchDeals();
-  }, []);
+  }, [SITE_ID]);
 
   const dealsWithBalance = useMemo(() => {
     let currentBal = 0;
